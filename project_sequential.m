@@ -55,11 +55,7 @@ for k = 1:nObs
 
     pre_fit(:,k) = y_k - Htilde * x_bar;
     x_hat(:,k)   = x_bar + K * pre_fit(:,k);
-    P_k          = ( I18 - K * Htilde ) * P_bar;
-
-    if S.symmetrizeCov
-        P_k = 0.5 * ( P_k + P_k' );
-    end
+    P_k          = sequential_covariance_update( S , P_bar , K , Htilde , I18 );
 
     post_fit(:,k) = y_k - Htilde * x_hat(:,k);
     P_store(:,:,k) = P_k;
@@ -88,8 +84,7 @@ if S.makePlots
 
     figure( 'Name' , 'Sequential Position Error Ellipsoid' );
     Ppos = P_store(1:3,1:3,end);
-    [ Rell , D ] = eig( Ppos );
-    semi = sqrt( diag( D ) );
+    [ Rell , semi ] = position_ellipsoid_semiaxes( Ppos );
     plotEllipsoid( Rell , semi );
     title( 'Sequential Position Error Ellipsoid (final epoch)' );
     xlabel( 'x [m]' ); ylabel( 'y [m]' ); zlabel( 'z [m]' );

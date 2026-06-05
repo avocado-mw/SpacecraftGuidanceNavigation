@@ -9,6 +9,9 @@
 %-------------------------------------------------------------------------%
 function plotEllipsoid( R , semi )
 
+semi = real( semi(:) );
+semi = max( semi , 0 );
+
 [x,y,z] = sphere( 24 );
 
 x = x * semi(1);
