@@ -11,6 +11,7 @@ In MATLAB or Octave, run from this directory:
     project_joseph
     project_ekf
     project_potter
+    project_sensitivity_p0   % P0 station-variance sensitivity study
 
 ## State and covariance setup
 
