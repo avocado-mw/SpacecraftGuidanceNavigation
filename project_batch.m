@@ -2,22 +2,8 @@
 %    project_batch
 %
 %  DESCRIPTION:
-%     Learner template for the batch least-squares processor used in the
-%     MAE 182 term project.
-%
-%     This script assumes that you have already implemented:
-%         project_dyn.m
-%         computed_A.m
-%         computed_Htilde.m
-%         computed_obs.m
-%
-%     The batch processor should:
-%       (1) propagate the reference trajectory and STM over the full data arc
-%       (2) build H_i = Htilde_i * Phi(t_i,t_0)
-%       (3) accumulate Lambda and N
-%       (4) solve the normal equations for x0_hat
-%       (5) iterate the nominal state update several times
-%       (6) report pre-fit / post-fit residuals and the position covariance
+%     Batch least-squares processor for the MAE 182 orbit-determination
+%     project.
 %
 %  MAE 182 -- Spacecraft Guidance and Navigation
 %-------------------------------------------------------------------------%
@@ -31,10 +17,13 @@ X0_ode = S.X0_ode;
 x0_bar = S.x0_bar;
 P0_bar = S.P0_bar;
 
-nIter        = S.batch_nIter;
-x0_hat_hist  = zeros( 18 , nIter );
-rho_rms_hist = zeros( nIter , 1 );
+nIter           = S.batch_nIter;
+x0_hat_hist     = zeros( 18 , nIter );
+rho_rms_hist    = zeros( nIter , 1 );
 rhodot_rms_hist = zeros( nIter , 1 );
+
+nObs = size( S.Y , 1 );
+y_all = zeros( 2 , nObs , nIter );
 
 for pass = 1:nIter
 
@@ -45,45 +34,86 @@ for pass = 1:nIter
     Lambda = P0_bar \ eye( 18 );
     N      = Lambda * x0_bar;
 
-    % Preallocate storage for this pass
-    nObs   = size( S.Y , 1 );
     rho    = zeros( nObs , 1 );
     rhodot = zeros( nObs , 1 );
     y      = zeros( 2 , nObs );
     H      = zeros( 2 , 18 , nObs );
 
-    %% 4) TODO: loop over the observations
-    % For each observation:
-    %   (a) recover the resampled index j = S.Yidx(k,1)
-    %   (b) compute Htilde, rho, rhodot using computed_Htilde
-    %   (c) form H(:,:,k) = Htilde * Phi20(:,:,j)
-    %   (d) build the observation residual y(:,k) = Yobs - Ycomp
-    %   (e) accumulate
-    %
-    %           Lambda = Lambda + H' * W * H
-    %           N      = N      + H' * W * y
-    %
-    % Use the project handout and lecture notes as your guide.
+    %% 4) Loop over the observations
+    for k = 1:nObs
+        j = S.Yidx(k,1);
 
-    %% 5) TODO: compute RMS values for this pass
-    % rho_rms_hist(pass)    = ...
-    % rhodot_rms_hist(pass) = ...
+        [ Htilde , rho(k) , rhodot(k) ] = computed_Htilde( t20(j) , x20(:,j) , S.Y(k,2) );
 
-    %% 6) TODO: solve the normal equations and update the nominal state
-    % x0_hat = ...
-    % P0     = ...
-    %
-    % Then update:
-    %   X0_ode(1:18) = X0_ode(1:18) + x0_hat
-    %   x0_bar       = x0_bar - x0_hat
-    %
-    % Store x0_hat in x0_hat_hist(:,pass).
+        H(:,:,k) = Htilde * Phi20(:,:,j);
+        y(:,k)   = S.Y(k,3:4)' - [ rho(k) ; rhodot(k) ];
+
+        Lambda = Lambda + H(:,:,k)' * S.W * H(:,:,k);
+        N      = N      + H(:,:,k)' * S.W * y(:,k);
+    end
+
+    y_all(:,:,pass) = y;
+
+    %% 5) RMS values for this pass
+    rho_rms_hist(pass)    = sqrt( mean( y(1,:).^2 ) );
+    rhodot_rms_hist(pass) = sqrt( mean( y(2,:).^2 ) );
+
+    disp( [ 'Pass ' , num2str(pass) , ': range_rms = ' , num2str( rho_rms_hist(pass) ) , ...
+            ' m, range_rate_rms = ' , num2str( rhodot_rms_hist(pass) ) , ' m/s' ] );
+
+    %% 6) Solve the normal equations and update the nominal state
+    x0_hat = Lambda \ N;
+    P0     = inv( Lambda );
+
+    if S.symmetrizeCov
+        P0 = 0.5 * ( P0 + P0' );
+    end
+
+    X0_ode(1:18) = X0_ode(1:18) + x0_hat;
+    x0_bar       = x0_bar - x0_hat;
+    x0_hat_hist(:,pass) = x0_hat;
 
 end
 
-%% 7) TODO: add the plots and summary outputs required by the project
-% At a minimum, the final project should show:
-%   - pre-fit and post-fit residuals
-%   - RMS values
-%   - the position-error ellipsoid
-%   - discussion of the fixed station and covariance choices
+%% 7) Summary outputs and plots
+pre_fit  = y_all(:,:,1);
+post_fit = y_all(:,:,nIter);
+P_final  = P0;
+
+rho_rms_pre    = rho_rms_hist(1);
+rho_rms_post   = rho_rms_hist(end);
+rhodot_rms_pre = rhodot_rms_hist(1);
+rhodot_rms_post = rhodot_rms_hist(end);
+
+fprintf( '\nBatch least squares summary:\n' );
+fprintf( '  Pre-fit  range RMS      = %.4f m\n'   , rho_rms_pre );
+fprintf( '  Post-fit range RMS     = %.4f m\n'   , rho_rms_post );
+fprintf( '  Pre-fit  range-rate RMS = %.6f m/s\n', rhodot_rms_pre );
+fprintf( '  Post-fit range-rate RMS = %.6f m/s\n', rhodot_rms_post );
+
+if S.makePlots
+    figure( 'Name' , 'Batch Range Residuals' );
+    plot( pre_fit(1,:) , 'r-' , 'DisplayName' , 'pre-fit' ); hold on
+    plot( post_fit(1,:) , 'k-' , 'DisplayName' , 'post-fit' );
+    grid on; legend( 'Location' , 'best' );
+    title( 'Batch Range Residuals' );
+    xlabel( 'observation number' ); ylabel( 'O - C [m]' );
+
+    figure( 'Name' , 'Batch Range-Rate Residuals' );
+    plot( pre_fit(2,:) , 'r-' , 'DisplayName' , 'pre-fit' ); hold on
+    plot( post_fit(2,:) , 'k-' , 'DisplayName' , 'post-fit' );
+    grid on; legend( 'Location' , 'best' );
+    title( 'Batch Range-Rate Residuals' );
+    xlabel( 'observation number' ); ylabel( 'O - C [m/s]' );
+
+    figure( 'Name' , 'Batch Position Error Ellipsoid' );
+    Ppos = P_final(1:3,1:3);
+    [ Rell , D ] = eig( Ppos );
+    semi = sqrt( diag( D ) );
+    plotEllipsoid( Rell , semi );
+    title( 'Batch Position Error Ellipsoid (3-sigma)' );
+    xlabel( 'x [m]' ); ylabel( 'y [m]' ); zlabel( 'z [m]' );
+end
+
+save project_batch_results x0_hat_hist rho_rms_hist rhodot_rms_hist ...
+     pre_fit post_fit P_final rho_rms_pre rho_rms_post rhodot_rms_pre rhodot_rms_post
