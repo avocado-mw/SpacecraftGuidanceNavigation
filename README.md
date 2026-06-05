@@ -26,6 +26,7 @@ Measurement noise is
 
     R = diag( (0.01 m)^2, (0.001 m/s)^2 )
 
-Batch least squares accumulates `H' R^{-1} H` directly. Sequential filters use
-all three stations continuously across the full 5-hour arc (no gap reset) and
-Joseph-form covariance updates by default.
+Batch and sensitivity processors normalize states as `x = S*z` and solve the
+stacked least-squares system with QR decomposition instead of `inv(H'WH)`.
+Sequential filters in the sensitivity study use the same normalization.
+Joseph-form covariance updates are used by default.

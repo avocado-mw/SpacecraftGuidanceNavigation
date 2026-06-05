@@ -6,6 +6,9 @@
 %     stations 337 and 394.  Runs batch and sequential filters for several
 %     P0 scalings and compares post-fit RMS and position covariance.
 %
+%     Both filters use state normalization (x = S*z) and the batch processor
+%     solves the normal equations with QR decomposition instead of inv(H'WH).
+%
 %  MAE 182 -- Spacecraft Guidance and Navigation
 %-------------------------------------------------------------------------%
 clearvars; close all; clc
@@ -26,8 +29,11 @@ seq.rhodot_rms_post = zeros( nCases , 1 );
 seq.sigma_rms       = zeros( nCases , 1 );
 seq.trace           = zeros( nCases , 1 );
 
-fprintf( 'P0 sensitivity: station 337/394 coordinate variance sweep\n' );
-fprintf( 'Station 101 variance fixed at 1e-10 m^2\n\n' );
+S_scale = build_state_scaling();
+fprintf( 'P0 sensitivity with state normalization (x = S*z) and batch QR solve\n' );
+fprintf( 'Scaling diagonal: r,v,mu,J2,CD,s1,s2,s3 -> ' );
+fprintf( '%.0e ', diag( S_scale ) );
+fprintf( '\nStation 101 variance fixed at 1e-10 m^2\n\n' );
 fprintf( '%10s | %12s %12s %12s %12s | %12s %12s %12s %12s\n' , ...
     'Var[s2,s3]' , 'Batch rho' , 'Batch rhodot' , 'Batch sig' , 'Batch tr' , ...
     'Seq rho' , 'Seq rhodot' , 'Seq sig' , 'Seq tr' );
@@ -63,7 +69,7 @@ figure( 'Name' , 'P0 Sensitivity: Post-fit Range RMS' );
 bar( [ batch.rho_rms_post , seq.rho_rms_post ] );
 set( gca , 'XTickLabel' , labels );
 ylabel( 'post-fit range RMS [m]' );
-legend( 'Batch' , 'Sequential' , 'Location' , 'best' );
+legend( 'Batch (QR)' , 'Sequential (normalized)' , 'Location' , 'best' );
 grid on
 title( 'Post-fit Range RMS vs Station P0 Variance' );
 
@@ -71,7 +77,7 @@ figure( 'Name' , 'P0 Sensitivity: Position Covariance RMS' );
 bar( [ batch.sigma_rms , seq.sigma_rms ] );
 set( gca , 'XTickLabel' , labels );
 ylabel( 'position \sigma_{rms} [m]' );
-legend( 'Batch' , 'Sequential' , 'Location' , 'best' );
+legend( 'Batch (QR)' , 'Sequential (normalized)' , 'Location' , 'best' );
 grid on
 title( 'Position Covariance RMS vs Station P0 Variance' );
 
@@ -79,10 +85,10 @@ figure( 'Name' , 'P0 Sensitivity: Position Covariance Trace' );
 bar( [ batch.trace , seq.trace ] );
 set( gca , 'XTickLabel' , labels );
 ylabel( 'trace(P_{pos}) [m^2]' );
-legend( 'Batch' , 'Sequential' , 'Location' , 'best' );
+legend( 'Batch (QR)' , 'Sequential (normalized)' , 'Location' , 'best' );
 grid on
 title( 'Position Covariance Trace vs Station P0 Variance' );
 
-save project_sensitivity_p0_results stationVars batch seq
+save project_sensitivity_p0_results stationVars batch seq S_scale
 
 fprintf( '\nSaved results to project_sensitivity_p0_results.mat\n' );

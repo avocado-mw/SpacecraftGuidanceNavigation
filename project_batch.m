@@ -31,9 +31,10 @@ for pass = 1:nIter
     %% 2) Propagate the reference trajectory and resampled STM history
     [ t20 , x20 , Phi20 ] = propagate_full_arc( S , X0_ode );
 
-    %% 3) Initialize the normal equations
-    Lambda = P0_bar \ eye( nState );
-    N      = Lambda * x0_bar;
+    %% 3) Stack the measurement model for QR solve
+    S_scale = build_state_scaling();
+    H_stack = zeros( 2 * nObs , nState );
+    y_stack = zeros( 2 * nObs , 1 );
 
     rho    = zeros( nObs , 1 );
     rhodot = zeros( nObs , 1 );
@@ -42,14 +43,13 @@ for pass = 1:nIter
     %% 4) Loop over the observations
     for k = 1:nObs
         j = S.Yidx(k,1);
+        rows = ( 2 * ( k - 1 ) + 1 ) : ( 2 * k );
 
         [ Htilde , rho(k) , rhodot(k) ] = computed_Htilde( t20(j) , x20(:,j) , S.Y(k,2) );
-        Hk = Htilde * Phi20(:,:,j);
-        y(:,k) = S.Y(k,3:4)' - [ rho(k) ; rhodot(k) ];
 
-        % Accumulate using R directly:  Lambda += H' R^{-1} H,  N += H' R^{-1} y
-        Lambda = Lambda + Hk' * ( S.R \ Hk );
-        N      = N      + Hk' * ( S.R \ y(:,k) );
+        H_stack(rows,:) = Htilde * Phi20(:,:,j);
+        y(:,k)          = S.Y(k,3:4)' - [ rho(k) ; rhodot(k) ];
+        y_stack(rows)   = y(:,k);
     end
 
     y_all(:,:,pass) = y;
@@ -61,13 +61,8 @@ for pass = 1:nIter
     disp( [ 'Pass ' , num2str(pass) , ': range_rms = ' , num2str( rho_rms_hist(pass) ) , ...
             ' m, range_rate_rms = ' , num2str( rhodot_rms_hist(pass) ) , ' m/s' ] );
 
-    %% 6) Solve the normal equations and update the nominal state
-    x0_hat = Lambda \ N;
-    P0     = inv( Lambda );
-
-    if S.symmetrizeCov
-        P0 = 0.5 * ( P0 + P0' );
-    end
+    %% 6) QR solve in normalized coordinates and update the nominal state
+    [ x0_hat , P0 ] = batch_solve_qr( S , P0_bar , H_stack , y_stack , x0_bar , S_scale );
 
     X0_ode(1:nState) = X0_ode(1:nState) + x0_hat;
     x0_hat_hist(:,pass) = x0_hat;
