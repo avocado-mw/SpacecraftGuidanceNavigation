@@ -11,6 +11,7 @@ clearvars; close all; clc
 
 %% 0) Shared setup
 S = project_setup();
+nState = S.nState;
 
 %% 1) Initialize the batch iteration
 X0_ode = S.X0_ode;
@@ -18,7 +19,7 @@ x0_bar = S.x0_bar;
 P0_bar = S.P0_bar;
 
 nIter           = S.batch_nIter;
-x0_hat_hist     = zeros( 18 , nIter );
+x0_hat_hist     = zeros( nState , nIter );
 rho_rms_hist    = zeros( nIter , 1 );
 rhodot_rms_hist = zeros( nIter , 1 );
 
@@ -31,25 +32,24 @@ for pass = 1:nIter
     [ t20 , x20 , Phi20 ] = propagate_full_arc( S , X0_ode );
 
     %% 3) Initialize the normal equations
-    Lambda = P0_bar \ eye( 18 );
+    Lambda = P0_bar \ eye( nState );
     N      = Lambda * x0_bar;
 
     rho    = zeros( nObs , 1 );
     rhodot = zeros( nObs , 1 );
     y      = zeros( 2 , nObs );
-    H      = zeros( 2 , 18 , nObs );
 
     %% 4) Loop over the observations
     for k = 1:nObs
         j = S.Yidx(k,1);
 
         [ Htilde , rho(k) , rhodot(k) ] = computed_Htilde( t20(j) , x20(:,j) , S.Y(k,2) );
+        Hk = Htilde * Phi20(:,:,j);
+        y(:,k) = S.Y(k,3:4)' - [ rho(k) ; rhodot(k) ];
 
-        H(:,:,k) = Htilde * Phi20(:,:,j);
-        y(:,k)   = S.Y(k,3:4)' - [ rho(k) ; rhodot(k) ];
-
-        Lambda = Lambda + H(:,:,k)' * S.W * H(:,:,k);
-        N      = N      + H(:,:,k)' * S.W * y(:,k);
+        % Accumulate using R directly:  Lambda += H' R^{-1} H,  N += H' R^{-1} y
+        Lambda = Lambda + Hk' * ( S.R \ Hk );
+        N      = N      + Hk' * ( S.R \ y(:,k) );
     end
 
     y_all(:,:,pass) = y;
@@ -69,9 +69,11 @@ for pass = 1:nIter
         P0 = 0.5 * ( P0 + P0' );
     end
 
-    X0_ode(1:18) = X0_ode(1:18) + x0_hat;
-    x0_bar       = x0_bar - x0_hat;
+    X0_ode(1:nState) = X0_ode(1:nState) + x0_hat;
     x0_hat_hist(:,pass) = x0_hat;
+
+    % Deviation from the updated nominal is zero at the start of the next pass.
+    x0_bar = zeros( nState , 1 );
 
 end
 
@@ -80,16 +82,20 @@ pre_fit  = y_all(:,:,1);
 post_fit = y_all(:,:,nIter);
 P_final  = P0;
 
-rho_rms_pre    = rho_rms_hist(1);
-rho_rms_post   = rho_rms_hist(end);
-rhodot_rms_pre = rhodot_rms_hist(1);
+rho_rms_pre     = rho_rms_hist(1);
+rho_rms_post    = rho_rms_hist(end);
+rhodot_rms_pre  = rhodot_rms_hist(1);
 rhodot_rms_post = rhodot_rms_hist(end);
 
 fprintf( '\nBatch least squares summary:\n' );
+fprintf( '  Measurement noise R = diag([%.2e, %.2e]) [m^2, (m/s)^2]\n' , S.R(1,1) , S.R(2,2) );
 fprintf( '  Pre-fit  range RMS      = %.4f m\n'   , rho_rms_pre );
 fprintf( '  Post-fit range RMS     = %.4f m\n'   , rho_rms_post );
 fprintf( '  Pre-fit  range-rate RMS = %.6f m/s\n', rhodot_rms_pre );
 fprintf( '  Post-fit range-rate RMS = %.6f m/s\n', rhodot_rms_post );
+
+pos_sigma = sqrt( max( real( diag( P_final(1:3,1:3) ) ) , 0 ) );
+fprintf( '  Position 1-sigma (x,y,z) = [%.3f, %.3f, %.3f] m\n' , pos_sigma );
 
 if S.makePlots
     t_obs = S.Yraw(:,1)';
@@ -97,9 +103,8 @@ if S.makePlots
 
     figure( 'Name' , 'Batch Position Error Ellipsoid' );
     Ppos = P_final(1:3,1:3);
-    [ Rell , D ] = eig( Ppos );
-    semi = sqrt( diag( D ) );
-    plotEllipsoid( Rell , semi );
+    [ Rell , semi ] = position_ellipsoid_semiaxes( Ppos );
+    plotEllipsoid( Rell , 3 * semi );
     title( 'Batch Position Error Ellipsoid (3-sigma)' );
     xlabel( 'x [m]' ); ylabel( 'y [m]' ); zlabel( 'z [m]' );
 end

@@ -11,21 +11,19 @@
 clearvars; close all; clc
 
 %% 0) Shared setup
-S = project_setup( 'sequential' );
-
-fprintf( 'EKF using station ID(s): %s\n' , num2str( S.sequentialStationIDs ) );
+S = project_setup();
 
 %% 1) Initial conditions
 x_hat_prev = S.x0_bar;
 P_prev     = S.P0_bar;
 Xref0_ode  = S.X0_ode;
 Phi0       = S.Phi0;
-I18        = eye( 18 );
+I18        = eye( S.nState );
 
 nObs = size( S.Y , 1 );
 
-x_hat    = zeros( 18 , nObs );
-P_store  = zeros( 18 , 18 , nObs );
+x_hat    = zeros( S.nState , nObs );
+P_store  = zeros( S.nState , S.nState , nObs );
 pre_fit  = zeros( 2 , nObs );
 post_fit = zeros( 2 , nObs );
 
@@ -35,9 +33,6 @@ t_obs  = S.Yraw(:,1)';
 for k = 1:nObs
 
     t_k = S.Yraw(k,1);
-    dt  = t_k - t_prev;
-
-    [ x_hat_prev , P_prev ] = sequential_gap_reset( S , dt , x_hat_prev , P_prev );
 
     [ x_ref , Phi_k ] = propagate_step( S , Xref0_ode , t_prev , t_k );
 
@@ -51,31 +46,18 @@ for k = 1:nObs
     [ Htilde , rho , rhodot ] = computed_Htilde( t_k , x_ref , S.Y(k,2) );
     y_k = S.Y(k,3:4)' - [ rho ; rhodot ];
 
-    if S.useJoseph
-        Syy = Htilde * P_bar * Htilde' + S.R;
-        K   = P_bar * Htilde' / Syy;
-        pre_fit(:,k) = y_k - Htilde * x_bar;
-        x_hat(:,k)   = x_bar + K * pre_fit(:,k);
-        IKH = I18 - K * Htilde;
-        P_k = IKH * P_bar * IKH' + K * S.R * K';
-    else
-        Syy = Htilde * P_bar * Htilde' + S.R;
-        K   = P_bar * Htilde' / Syy;
-        pre_fit(:,k) = y_k - Htilde * x_bar;
-        x_hat(:,k)   = x_bar + K * pre_fit(:,k);
-        P_k = ( I18 - K * Htilde ) * P_bar;
-    end
-
-    if S.symmetrizeCov
-        P_k = 0.5 * ( P_k + P_k' );
-    end
+    Syy = Htilde * P_bar * Htilde' + S.R;
+    K   = P_bar * Htilde' / Syy;
+    pre_fit(:,k) = y_k - Htilde * x_bar;
+    x_hat(:,k)   = x_bar + K * pre_fit(:,k);
+    P_k          = sequential_covariance_update( S , P_bar , K , Htilde , I18 );
 
     post_fit(:,k) = y_k - Htilde * x_hat(:,k);
     P_store(:,:,k) = P_k;
 
     x_ref_updated = x_ref + x_hat(:,k);
     if k >= S.ekfWarmup
-        x_hat_prev = zeros( 18 , 1 );
+        x_hat_prev = zeros( S.nState , 1 );
         Xref0_ode  = [ x_ref_updated ; Phi0 ];
     else
         x_hat_prev = x_hat(:,k);
@@ -105,10 +87,9 @@ if S.makePlots
 
     figure( 'Name' , 'EKF Position Error Ellipsoid' );
     Ppos = P_store(1:3,1:3,end);
-    [ Rell , D ] = eig( Ppos );
-    semi = sqrt( diag( D ) );
-    plotEllipsoid( Rell , semi );
-    title( 'EKF Position Error Ellipsoid (final epoch)' );
+    [ Rell , semi ] = position_ellipsoid_semiaxes( Ppos );
+    plotEllipsoid( Rell , 3 * semi );
+    title( 'EKF Position Error Ellipsoid (3-sigma, final epoch)' );
     xlabel( 'x [m]' ); ylabel( 'y [m]' ); zlabel( 'z [m]' );
 end
 
