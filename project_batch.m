@@ -92,19 +92,8 @@ fprintf( '  Pre-fit  range-rate RMS = %.6f m/s\n', rhodot_rms_pre );
 fprintf( '  Post-fit range-rate RMS = %.6f m/s\n', rhodot_rms_post );
 
 if S.makePlots
-    figure( 'Name' , 'Batch Range Residuals' );
-    plot( pre_fit(1,:) , 'r-' , 'DisplayName' , 'pre-fit' ); hold on
-    plot( post_fit(1,:) , 'k-' , 'DisplayName' , 'post-fit' );
-    grid on; legend( 'Location' , 'best' );
-    title( 'Batch Range Residuals' );
-    xlabel( 'observation number' ); ylabel( 'O - C [m]' );
-
-    figure( 'Name' , 'Batch Range-Rate Residuals' );
-    plot( pre_fit(2,:) , 'r-' , 'DisplayName' , 'pre-fit' ); hold on
-    plot( post_fit(2,:) , 'k-' , 'DisplayName' , 'post-fit' );
-    grid on; legend( 'Location' , 'best' );
-    title( 'Batch Range-Rate Residuals' );
-    xlabel( 'observation number' ); ylabel( 'O - C [m/s]' );
+    t_obs = S.Yraw(:,1)';
+    plot_filter_residuals( t_obs , pre_fit , post_fit , 'Batch' );
 
     figure( 'Name' , 'Batch Position Error Ellipsoid' );
     Ppos = P_final(1:3,1:3);

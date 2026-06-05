@@ -10,7 +10,11 @@
 %
 %  MAE 182 -- Spacecraft Guidance and Navigation
 %-------------------------------------------------------------------------%
-function S = project_setup()
+function S = project_setup( mode )
+
+if nargin < 1
+    mode = 'batch';
+end
 
 %% 1) ODE and observation settings
 S.tol       = 1e-12;
@@ -47,6 +51,8 @@ S.X0_ode    = [ S.X0_state ; S.Phi0 ];
 
 %% 4) A priori state and covariance for the full 18-state estimator
 S.x0_bar = zeros( 18 , 1 );
+% Station coordinates are known from the handout, so their a priori sigmas are
+% set to 1e-5 m (variance 1e-10).  Only the dynamic states are estimated.
 S.P0_bar = diag([ ...
     1e6 , 1e6 , 1e6 , ...
     1e6 , 1e6 , 1e6 , ...
@@ -54,8 +60,8 @@ S.P0_bar = diag([ ...
     1e6 , ...
     1e6 , ...
     1e-10, 1e-10, 1e-10, ...
-    1e6 , 1e6 , 1e6 , ...
-    1e6 , 1e6 , 1e6 ]);
+    1e-10, 1e-10, 1e-10, ...
+    1e-10, 1e-10, 1e-10 ]);
 
 %% 5) Measurement-noise model
 S.sig_rho    = 0.01;     % [m]
@@ -64,7 +70,22 @@ S.R          = diag( [ S.sig_rho^2 , S.sig_rhodot^2 ] );
 S.W          = diag( [ 1 / S.sig_rho^2 , 1 / S.sig_rhodot^2 ] );
 
 %% 6) Observation file
-S.Yraw = load( 'project_obs_data.txt' );
+S.obsFile = 'project_obs_data.txt';
+S.YrawAll = load( S.obsFile );
+
+% Batch processing uses all stations.  Sequential filters use a single
+% station to avoid mixing incompatible visibility arcs and coordinate
+% partials in one filter pass.
+S.batchStationIDs      = [ 101 , 337 , 394 ];
+S.sequentialStationIDs = 337;
+
+if strcmpi( mode , 'sequential' )
+    activeIDs = S.sequentialStationIDs;
+else
+    activeIDs = S.batchStationIDs;
+end
+
+S.Yraw = filter_observations( S.YrawAll , activeIDs );
 S.Y    = S.Yraw;
 S.Yidx = S.Yraw;
 
@@ -82,6 +103,7 @@ S.makePlots      = true;
 S.ekfWarmup      = 100;      % update reference after this many observations
 S.useJoseph      = true;     % default robust covariance update
 S.symmetrizeCov  = true;
+S.gapResetTime   = 60;       % reset sequential covariance after [s]
 
 end
 
@@ -90,4 +112,10 @@ stationLocal = stationIDs;
 stationLocal( stationIDs == 101 ) = 1;
 stationLocal( stationIDs == 337 ) = 2;
 stationLocal( stationIDs == 394 ) = 3;
+end
+
+function Yfilt = filter_observations( Yall , stationIDs )
+keep = ismember( Yall(:,2) , stationIDs );
+Yfilt = Yall( keep , : );
+Yfilt = sortrows( Yfilt , 1 );
 end

@@ -11,7 +11,9 @@
 clearvars; close all; clc
 
 %% 0) Shared setup
-S = project_setup();
+S = project_setup( 'sequential' );
+
+fprintf( 'EKF using station ID(s): %s\n' , num2str( S.sequentialStationIDs ) );
 
 %% 1) Initial conditions
 x_hat_prev = S.x0_bar;
@@ -28,10 +30,14 @@ pre_fit  = zeros( 2 , nObs );
 post_fit = zeros( 2 , nObs );
 
 t_prev = 0;
+t_obs  = S.Yraw(:,1)';
 
 for k = 1:nObs
 
     t_k = S.Yraw(k,1);
+    dt  = t_k - t_prev;
+
+    [ x_hat_prev , P_prev ] = sequential_gap_reset( S , dt , x_hat_prev , P_prev );
 
     [ x_ref , Phi_k ] = propagate_step( S , Xref0_ode , t_prev , t_k );
 
@@ -95,19 +101,7 @@ fprintf( '  Pre-fit  range-rate RMS = %.6f m/s\n', rhodot_rms_pre );
 fprintf( '  Post-fit range-rate RMS = %.6f m/s\n', rhodot_rms_post );
 
 if S.makePlots
-    figure( 'Name' , 'EKF Range Residuals' );
-    plot( pre_fit(1,:) , 'r-' , 'DisplayName' , 'pre-fit' ); hold on
-    plot( post_fit(1,:) , 'k-' , 'DisplayName' , 'post-fit' );
-    grid on; legend( 'Location' , 'best' );
-    title( 'EKF Range Residuals' );
-    xlabel( 'observation number' ); ylabel( 'O - C [m]' );
-
-    figure( 'Name' , 'EKF Range-Rate Residuals' );
-    plot( pre_fit(2,:) , 'r-' , 'DisplayName' , 'pre-fit' ); hold on
-    plot( post_fit(2,:) , 'k-' , 'DisplayName' , 'post-fit' );
-    grid on; legend( 'Location' , 'best' );
-    title( 'EKF Range-Rate Residuals' );
-    xlabel( 'observation number' ); ylabel( 'O - C [m/s]' );
+    plot_filter_residuals( t_obs , pre_fit , post_fit , 'EKF' );
 
     figure( 'Name' , 'EKF Position Error Ellipsoid' );
     Ppos = P_store(1:3,1:3,end);
